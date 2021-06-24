@@ -8,14 +8,7 @@ from enum import IntEnum, auto
 import threading
 import random
 
-"""
-i386=>0
-x86_64=>1
-arm=>2
-aarch64=>3
-"""
-ARCH = 3
-
+ARCH = 0
 PID = 0
 API = 0
 
@@ -384,11 +377,13 @@ def main_thread(conn,thread_count):
         if(ret == -1):
             break
 
-def ceserver(pid,api):
+def ceserver(pid,api,arch):
     global PID
     global API
+    global ARCH
     API = api
     PID = pid
+    ARCH = arch
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         thread_count = 0
         s.bind(('127.0.0.1', 52736))
