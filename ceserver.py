@@ -351,6 +351,20 @@ def handler(ns,command,thread_count):
         GetSymbolListFromFile(symbolname[2:],output)
         ns.sendall(output[0])
 
+    elif(command == CECMD.CMD_ALLOC):
+        handle = reader.ReadInt32()
+        preferedBase = reader.ReadUInt64()
+        size = reader.ReadInt32()
+        address = API.ExtAlloc(preferedBase,size)
+        writer.WriteUInt64(address)
+
+    elif(command == CECMD.CMD_FREE):
+        handle = reader.ReadInt32()
+        address = reader.ReadUInt64()
+        size = reader.ReadInt32()
+        r = API.ExtFree(address,size)
+        writer.WriteInt32(r)
+
     else:
         pass
     return 1

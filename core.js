@@ -1,5 +1,6 @@
 const MEM_MAPPED = 262144;
 const MEM_PRIVATE = 131072;
+
 const PAGE_NOACCESS = 1;
 const PAGE_READONLY = 2;
 const PAGE_READWRITE = 4;
@@ -7,6 +8,14 @@ const PAGE_WRITECOPY = 8;
 const PAGE_EXECUTE = 16;
 const PAGE_EXECUTE_READ = 32;
 const PAGE_EXECUTE_READWRITE = 64;
+
+const PROT_READ = 1;
+const PROT_WRITE = 2;
+const PROT_EXEC = 4;
+
+const MAP_SHARED = 1;
+const MAP_PRIVATE = 2;
+const MAP_ANONYMOUS = 32;
 
 function ProtectionStringToType(protectionstring){
     if (protectionstring.indexOf('s')!=-1)
@@ -51,7 +60,7 @@ var moduleList = null;
 var moduleListIterator = 0;
 var moduleSize = 0;
 var regionList = Process.enumerateRanges("r--");
-
+var allocList = {};
 
 rpc.exports = {
     readprocessmemory: function (address,size) {
@@ -184,5 +193,40 @@ rpc.exports = {
             }
         }
         return symbollist;
+    },
+    extalloc:  function(preferedBase,size){
+        var mmapPtr = Module.findExportByName(null, "mmap");
+        var mmap = new NativeFunction(mmapPtr, 'pointer', ['pointer','int','int','int','int','int']);
+        var ret = mmap(ptr(preferedBase), size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        var address = parseInt(ret);
+        if(address!=-1){
+            allocList[address] = size;
+        }
+        return address;
+    },
+    extfree:  function(address,size){
+        var psize = 0;
+        var result = 0;
+        if(size==0){
+            if(allocList[address]){
+                psize = allocList[address];
+                delete allocList[address];
+            }else{
+                psize = 0;
+            }
+        }
+        if(psize!=0){
+            var munmapPtr = Module.findExportByName(null, "munmap");
+            var munmap = new NativeFunction(munmapPtr, 'pointer', ['pointer','int']);
+            var ret = munmap(ptr(address),psize);
+            result = parseInt(ret);
+            if(result==-1)
+                result = 0;
+            else
+                result=1;
+        }else{
+            result = 0;
+        }
+        return result;
     }
 }
