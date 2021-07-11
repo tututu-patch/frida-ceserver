@@ -315,7 +315,7 @@ def handler(ns,command,thread_count):
             ns.sendall(bytecode)
             filename = ret[4]
             filenamesize = len(filename)
-            writer.WriteInt8(filenamesize)
+            writer.WriteUInt8(filenamesize)
             ns.sendall(filename.encode())
         else:
             protection=0
@@ -365,7 +365,11 @@ def handler(ns,command,thread_count):
 def main_thread(conn,thread_count):
     while True:
         try:
-            b = recvall(conn,1)
+            b = conn.recv(1)
+            if b == b"":
+                conn.close()
+                print("Peer has disconnected")
+                break
             command = unpack("<b",b)[0]
             ret = handler(conn,command,thread_count)
         except:
