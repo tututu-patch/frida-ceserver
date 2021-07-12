@@ -344,6 +344,17 @@ def handler(ns,command,thread_count):
         GetSymbolListFromFile(symbolname[2:],output)
         ns.sendall(output[0])
 
+    elif(command == CECMD.CMD_LOADEXTENSION):
+        handle = reader.ReadInt32()
+        writer.WriteInt32(1)
+
+    elif(command == CECMD.CMD_SPEEDHACK_SETSPEED):
+        handle = reader.ReadInt32()
+        data = ns.recv(4)
+        speedratio = unpack("<f",data)[0]
+        r = API.ExtSetSpeed(speedratio)
+        writer.WriteInt32(r)
+
     elif(command == CECMD.CMD_ALLOC):
         handle = reader.ReadInt32()
         preferedBase = reader.ReadUInt64()

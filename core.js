@@ -62,6 +62,180 @@ var moduleSize = 0;
 var regionList = Process.enumerateRanges("r--");
 var allocList = {};
 
+/*speedhack*/
+var hookFlag = false;
+
+var initialclock = new Array(10);
+for(let y = 0; y < 10; y++) {
+  initialclock[y] = {"result":0,"initialoffset":{"tv_sec":0,"tv_nsec":0},"initialtime":{"tv_sec":0,"tv_nsec":0}}
+}
+
+var initial_offset_tod_tv = {"tv_sec":0,"tv_usec":0};
+var initial_time_tod_tv = {"tv_sec":0,"tv_usec":0};
+
+var speedmultiplier = 1.0;
+const PS = Process.pointerSize;
+
+var coreLibraryName = "";
+if(Process.platform=="darwin")
+{
+    coreLibraryName = "libSystem.B.dylib";
+}
+else
+{
+    coreLibraryName = "libc.so";
+}
+
+var clock_gettimePtr =Module.findExportByName(coreLibraryName,"clock_gettime");
+var clock_gettime = new NativeFunction(clock_gettimePtr, 'int', ['int','pointer']);
+var gettimeofdayPtr =Module.findExportByName(coreLibraryName,"gettimeofday");
+var gettimeofday = new NativeFunction(gettimeofdayPtr, 'int', ['pointer','pointer']);
+
+var clock_gettime_isReal = false;
+var gettimeofday_isReal = false;
+
+function speedhack_initializeSpeed(speed)
+{
+    var temptv = Memory.alloc(PS*2);
+    gettimeofday(temptv,ptr(0));
+    initial_offset_tod_tv.tv_sec = temptv.readUInt();
+    initial_offset_tod_tv.tv_usec = temptv.add(PS).readUInt();
+    gettimeofday_isReal = true;
+    gettimeofday(temptv,ptr(0));
+    gettimeofday_isReal = false;
+    initial_time_tod_tv.tv_sec = temptv.readUInt();
+    initial_time_tod_tv.tv_usec = temptv.add(PS).readUInt();
+    
+
+    var i;
+    for (i=0; i<=9; i++)
+    {
+        var temptp = Memory.alloc(PS*3);
+        clock_gettime(i, temptp);
+        initialclock[i].initialoffset.tv_sec = temptp.readUInt();
+        initialclock[i].initialoffset.tv_nsec = temptp.add(PS).readUInt();
+        clock_gettime_isReal = true;
+        initialclock[i].result=clock_gettime(i, temptp);
+        clock_gettime_isReal = false;
+        initialclock[i].initialtime.tv_sec = temptp.readUInt();
+        initialclock[i].initialtime.tv_nsec = temptp.add(PS).readUInt();
+    }
+
+    speedmultiplier=speed;
+}
+
+function clock_gettimeHook()
+{
+    Interceptor.attach(clock_gettimePtr, {  
+        onEnter: function(args) {
+            this.clk_id = parseInt(args[0]);
+            this.currenttp = args[1];
+            
+        },
+        onLeave: function(retValue) {
+            if(clock_gettime_isReal)
+                return;
+            var clk_id = this.clk_id;
+            var currenttp = this.currenttp;
+            
+        
+            if(this.clk_id<=9 && initialclock[clk_id].result==0)
+            {
+
+                var temptp = {"tv_sec":0,"tv_nsec":0};
+                temptp.tv_sec=currenttp.readUInt()-initialclock[clk_id].initialtime.tv_sec;
+                temptp.tv_nsec=currenttp.add(PS).readUInt()-initialclock[clk_id].initialtime.tv_nsec;
+
+                if (temptp.tv_nsec<0)
+                {
+                    temptp.tv_nsec+=1000000000;
+                    temptp.tv_sec--;
+                }
+
+                var newsec_double = temptp.tv_sec*speedmultiplier;
+
+                var newnsec=Math.floor(temptp.tv_nsec*speedmultiplier);
+                var newsec=Math.floor(newsec_double);
+
+                newnsec+=Math.floor((newsec_double - Math.floor(newsec_double)) * 1000000000.0);
+
+                newsec+=initialclock[clk_id].initialoffset.tv_sec;
+                newnsec+=initialclock[clk_id].initialoffset.tv_nsec;
+
+                newsec+=newnsec / 1000000000;
+                newnsec=newnsec % 1000000000;
+
+                if (newnsec<0)
+                {
+                    newnsec+=1000000000;
+                    newsec--;
+                }
+                newsec = Math.floor(newsec);
+                try
+                {
+                    currenttp.writeUInt(newsec);
+                    currenttp.add(PS).writeUInt(newnsec);
+                }
+                catch(err)
+                {
+                    console.log(err);
+                }   
+            }
+        }                                                         
+    });
+}
+
+function gettimeofdayHook()
+{
+    Interceptor.attach(gettimeofdayPtr, {  
+        onEnter: function(args) {
+            this.tv = args[0];
+            this.tz = args[1];
+            
+        },
+        onLeave: function(retValue) {
+            if(gettimeofday_isReal)
+                return;
+            var currenttv = this.tv;
+            
+            var temptv = {"tv_sec":0,"tv_usec":0};
+            temptv.tv_sec=currenttv.readUInt()-initial_time_tod_tv.tv_sec;
+            temptv.tv_usec=currenttv.add(PS).readUInt()-initial_time_tod_tv.tv_usec;
+
+            if (temptv.tv_usec<0)
+            {
+                temptv.tv_usec+=1000000;
+                temptv.tv_sec--;
+            }
+
+            var newsec_double = temptv.tv_sec*speedmultiplier;
+
+            var newusec=Math.floor(temptv.tv_usec*speedmultiplier);
+            var newsec=Math.floor(newsec_double);
+
+            newusec+=Math.floor((newsec_double - Math.floor(newsec_double)) * 1000000);
+
+            newsec+=initial_offset_tod_tv.tv_sec;
+            newusec+=initial_offset_tod_tv.tv_usec;
+
+            newsec+=newusec / 1000000;
+            newusec=newusec % 1000000;
+
+            if (newusec<0)
+            {
+                newusec+=1000000;
+                newsec--;
+            }
+
+            newsec = Math.floor(newsec);
+
+            currenttv.writeUInt(newsec);
+            currenttv.add(PS).writeUInt(newusec);
+
+        }                                                     
+    });
+}
+
 rpc.exports = {
     readprocessmemory: function (address,size) {
         try
@@ -228,5 +402,17 @@ rpc.exports = {
             result = 0;
         }
         return result;
+    },
+    extsetspeed: function (speed) {
+        speedhack_initializeSpeed(speed);
+
+        if(hookFlag==false)
+        {
+            clock_gettimeHook();
+            gettimeofdayHook();
+            hookFlag = true;
+        }
+
+        return 1;
     }
 }
